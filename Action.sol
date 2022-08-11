@@ -121,7 +121,6 @@ contract Context {
 
 pragma solidity 0.5.12;
 
-
 /**
  * @dev Contract module which provides a basic access control mechanism, where
  * there is an account (an owner) that can be granted exclusive access to
@@ -368,6 +367,8 @@ contract BaseOLY {
 
     function mint(address _uid, uint256 _tokens) external returns (bool);
 
+    function mintAction(address _uid, uint256 _tokens) external returns (bool);
+
     function isUser(address _uid) external view returns (bool);
 
     function getInviter(address _uid) external returns (address);
@@ -396,7 +397,6 @@ contract BaseNFT {
 // File: contracts/Action.sol
 
 pragma solidity 0.5.12;
-
 
 
 
@@ -513,7 +513,7 @@ contract Action is Ownable {
         require(_time > 0 && _time < block.timestamp);
         require(_recordIDO[msg.sender].amount > 0);
         require(_recordIDO[msg.sender].isWithdraw == false);
-        require(_OLY.mint(msg.sender, _recordIDO[msg.sender].amount));
+        require(_OLY.mintAction(msg.sender, _recordIDO[msg.sender].amount));
         _recordIDO[msg.sender].isWithdraw = true;
     }
 
@@ -522,7 +522,7 @@ contract Action is Ownable {
         require(_time > 0 && _time < block.timestamp);
         require(_recordShare[msg.sender].amount > 0);
         require(_recordShare[msg.sender].isWithdraw == false);
-        require(_OLY.mint(msg.sender, _recordShare[msg.sender].amount));
+        require(_OLY.mintAction(msg.sender, _recordShare[msg.sender].amount));
         _recordShare[msg.sender].isWithdraw = true;
     }
 

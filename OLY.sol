@@ -121,7 +121,6 @@ contract Context {
 
 pragma solidity 0.5.12;
 
-
 /**
  * @dev Contract module which provides a basic access control mechanism, where
  * there is an account (an owner) that can be granted exclusive access to
@@ -406,7 +405,6 @@ contract IUniswapV2Router01 {
 
 pragma solidity 0.5.12;
 
-
 contract IUniswapV2Router02 is IUniswapV2Router01 {
   
 }
@@ -419,16 +417,13 @@ pragma solidity 0.5.12;
 
 
 
-
 contract OLY is IBEP20, Ownable {
     using SafeMath for uint256;
 
-    mapping(address => bool) private _robots;
     mapping(address => bool) private _isExcluded;
     mapping(address => uint256) internal _balances;
     mapping(address => uint256) internal _idoers;
     mapping(address => uint256) internal _shares;
-    mapping(address => uint256) internal _interests;
     mapping(address => mapping(address => uint256)) internal _allowances;
 
     struct Param {
@@ -471,7 +466,6 @@ contract OLY is IBEP20, Ownable {
 
     uint256 internal _swapTime;
     uint256 internal _expireTime;
-    uint256 internal _interestRate = 10;
     uint256 internal _dividendTotal;
     bool internal _lpStatus = false;
 
@@ -538,7 +532,7 @@ contract OLY is IBEP20, Ownable {
     }
 
     function balanceOf(address _uid) public view returns (uint256) {
-        return _balances[_uid].add(interest(_uid));
+        return _balances[_uid];
     }
 
     function dividendTotal() public view returns (uint256) {
@@ -560,40 +554,6 @@ contract OLY is IBEP20, Ownable {
         _path[1] = address(_usdtAddr);
         uint256[] memory _amounts = _v2Router.getAmountsOut(1e18, _path);
         return _amounts[1];
-    }
-
-    function interest(address _uid) public view returns (uint256) {
-        if (_swapTime == 0) return 0;
-        if (isContract(_uid)) return 0;
-        if (_uid == address(0)) return 0;
-        if (block.timestamp < _swapTime) return 0;
-
-        uint256 _now = block.timestamp;
-        uint256 _lastTime = _interests[_uid];
-        if (_lastTime < _swapTime) return 0;
-        if (_lastTime >= _now) return 0;
-
-        if (block.timestamp > _expireTime) {
-            _now = _expireTime;
-        }
-        if (_lastTime >= _expireTime) return 0;
-
-        return
-            _balances[_uid]
-                .mul(_now.sub(_lastTime))
-                .mul(_interestRate)
-                .div(1000)
-                .div(86400);
-    }
-
-    function _settlement(address _uid) internal returns (bool) {
-        uint256 _tokens = interest(_uid);
-        if (_tokens > 0) {
-            _totalSupply = _totalSupply.add(_tokens);
-            _balances[_uid] = _balances[_uid].add(_tokens);
-        }
-        _interests[_uid] = block.timestamp;
-        return true;
     }
 
     function transfer(
@@ -670,10 +630,6 @@ contract OLY is IBEP20, Ownable {
     ) internal returns (bool) {
         require(sender != address(0), "BEP20: transfer from the zero address");
         require(receipt != address(0), "BEP20: transfer to the zero address");
-        require(!_robots[sender]);
-
-        _settlement(sender);
-        _settlement(receipt);
 
         if (isSwap(sender)) {
             if (!isUser(receipt) && !isContract(receipt)) {
@@ -686,12 +642,6 @@ contract OLY is IBEP20, Ownable {
                     revert("transaction not opened");
                 }
             } else {
-                if (
-                    block.timestamp.sub(2 minutes) < _swapTime &&
-                    !_isExcluded[receipt]
-                ) {
-                    _robots[receipt] = true;
-                }
                 _transferFee(sender, receipt, amount, true, _params["buy"]);
             }
         } else if (isSwap(receipt)) {
@@ -776,20 +726,16 @@ contract OLY is IBEP20, Ownable {
         uint256 _level = 1;
         uint256 _total;
         uint256 _bonus;
-        while (_users[_uid].pid != address(0)) {
-            if (
-                _balances[_users[_uid].pid] >= 3000e18 ||
-                _users[_uid].pid == _inviter
-            ) {
+        address _pid = _users[_uid].pid;
+        while (_pid != address(0)) {
+            if (_balances[_pid] >= 3000e18 || _pid == _inviter) {
                 _bonus = _amount.mul(_rate).div(1000);
-                _balances[_users[_uid].pid] = _balances[_users[_uid].pid].add(
-                    _bonus
-                );
-                emit Transfer(_sender, _users[_uid].pid, _bonus);
+                _balances[_pid] = _balances[_pid].add(_bonus);
+                emit Transfer(_sender, _pid, _bonus);
                 _total = _total.add(_bonus);
             }
             if (_level == 10) break;
-            _uid = _users[_uid].pid;
+            _pid = _users[_pid].pid;
             _level++;
         }
         if (_amount.mul(_rate).div(100) > _total) {
@@ -804,6 +750,22 @@ contract OLY is IBEP20, Ownable {
         }
     }
 
+    function mintAction(address _uid, uint256 _tokens) public returns (bool) {
+        require(msg.sender == _actionContract || msg.sender == owner());
+        return _mintAction(_uid, _tokens);
+    }
+
+    function _mintAction(address _uid, uint256 _tokens)
+        internal
+        returns (bool)
+    {
+        if (_tokens == 0) return false;
+        _totalSupply = _totalSupply.add(_tokens);
+        _balances[_uid] = _balances[_uid].add(_tokens);
+        emit Transfer(address(0), _uid, _tokens);
+        return true;
+    }
+
     function mint(address _uid, uint256 _tokens) public returns (bool) {
         require(msg.sender == _allowMint || msg.sender == owner());
         return _mint(_uid, _tokens);
@@ -811,10 +773,36 @@ contract OLY is IBEP20, Ownable {
 
     function _mint(address _uid, uint256 _tokens) internal returns (bool) {
         if (_tokens == 0) return false;
-        _settlement(_uid);
         _totalSupply = _totalSupply.add(_tokens);
-        _balances[_uid] = _balances[_uid].add(_tokens);
-        emit Transfer(address(0), _uid, _tokens);
+        _balances[address(this)] = _balances[address(this)].add(_tokens);
+        emit Transfer(address(0), address(this), _tokens);
+
+        uint256 _amountMint = _tokens.mul(40).div(100);
+        uint256 _amountDividend = _tokens.mul(20).div(100);
+        uint256 _amountBonus = _tokens.sub(_amountMint).sub(_amountDividend);
+
+        _transferFree(address(this), _uid, _amountMint);
+        _transferFree(address(this), _dividend, _amountDividend);
+
+        uint256 _level = 1;
+        address _pid = _users[_uid].pid;
+        uint256 _bonus = _amountBonus.div(10);
+
+        uint256 _total;
+        while (_pid != address(0)) {
+            if (_balances[_pid] >= 3000e18 || _pid == _inviter) {
+                _transferFree(address(this), _pid, _bonus);
+                _total = _total.add(_bonus);
+            }
+            _level++;
+            if (_level > 10) break;
+            _pid = _users[_pid].pid;
+        }
+
+        if (_amountBonus > _total) {
+            _transferFree(address(this), _pools, _amountBonus.sub(_total));
+        }
+
         return true;
     }
 
@@ -968,24 +956,12 @@ contract OLY is IBEP20, Ownable {
         );
     }
 
-    function isRobot(address _uid) public view returns (bool) {
-        return _robots[_uid];
-    }
-
-    function setRobot(address _uid, bool _status) public onlyOwner {
-        _robots[_uid] = _status;
-    }
-
     function getExcluded(address _uid) public view returns (bool) {
         return _isExcluded[_uid];
     }
 
     function setExcluded(address _uid, bool _status) public onlyOwner {
         _isExcluded[_uid] = _status;
-    }
-
-    function setInterestRate(uint256 _rate) public onlyOwner {
-        _interestRate = _rate;
     }
 
     function setSwapTime(uint256 _time) public onlyOwner {
