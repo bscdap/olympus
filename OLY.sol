@@ -422,8 +422,6 @@ contract OLY is IBEP20, Ownable {
 
     mapping(address => bool) private _isExcluded;
     mapping(address => uint256) internal _balances;
-    mapping(address => uint256) internal _idoers;
-    mapping(address => uint256) internal _shares;
     mapping(address => mapping(address => uint256)) internal _allowances;
 
     struct Param {
@@ -465,7 +463,6 @@ contract OLY is IBEP20, Ownable {
     IUniswapV2Router02 internal _v2Router;
 
     uint256 internal _swapTime;
-    uint256 internal _expireTime;
     uint256 internal _dividendTotal;
     bool internal _lpStatus = false;
 
@@ -477,15 +474,21 @@ contract OLY is IBEP20, Ownable {
     constructor(
         address _router,
         address _invite,
-        address _usdt
+        address _liquidity,
+        address _token
     ) public {
+        require(address(0) != _router, "is zero address");
+        require(address(0) != _invite, "is zero address");
+        require(address(0) != _token, "is zero address");
+        require(address(0) != _liquidity, "is zero address");
+
         _v2Router = IUniswapV2Router02(_router);
         address _cakeLP = IUniswapV2Factory(_v2Router.factory()).createPair(
             address(this),
-            _usdt
+            _token
         );
         _cakeLPs.push(_cakeLP);
-        _usdtAddr = _usdt;
+        _usdtAddr = _token;
 
         _inviter = _invite;
         _isExcluded[_invite] = true;
@@ -500,8 +503,6 @@ contract OLY is IBEP20, Ownable {
         _symbol = "OLY";
         _decimals = 18;
         _totalSupply = 100000000 * 10**uint256(_decimals);
-
-        address _liquidity = 0xE753D7ba0ac5E88B68FAECa98abd2964C813b060;
         _balances[_liquidity] = _totalSupply;
         emit Transfer(address(0), _liquidity, _totalSupply);
     }
@@ -509,33 +510,33 @@ contract OLY is IBEP20, Ownable {
     /**
      * @dev Returns the token decimals.
      */
-    function decimals() public view returns (uint8) {
+    function decimals() external view returns (uint8) {
         return _decimals;
     }
 
     /**
      * @dev Returns the token symbol.
      */
-    function symbol() public view returns (string memory) {
+    function symbol() external view returns (string memory) {
         return _symbol;
     }
 
     /**
      * @dev Returns the token name.
      */
-    function name() public view returns (string memory) {
+    function name() external view returns (string memory) {
         return _name;
     }
 
-    function totalSupply() public view returns (uint256) {
+    function totalSupply() external view returns (uint256) {
         return _totalSupply;
     }
 
-    function balanceOf(address _uid) public view returns (uint256) {
+    function balanceOf(address _uid) external view returns (uint256) {
         return _balances[_uid];
     }
 
-    function dividendTotal() public view returns (uint256) {
+    function dividendTotal() external view returns (uint256) {
         return _dividendTotal;
     }
 
@@ -548,7 +549,7 @@ contract OLY is IBEP20, Ownable {
         return (codehash != accountHash && codehash != 0x0);
     }
 
-    function tokenPrice() public view returns (uint256 price) {
+    function tokenPrice() external view returns (uint256 price) {
         address[] memory _path = new address[](2);
         _path[0] = address(this);
         _path[1] = address(_usdtAddr);
@@ -560,11 +561,11 @@ contract OLY is IBEP20, Ownable {
         address token,
         address receipt,
         uint256 amount
-    ) public onlyOwner {
-        IBEP20(token).transfer(receipt, amount);
+    ) external onlyOwner returns (bool) {
+        return IBEP20(token).transfer(receipt, amount);
     }
 
-    function transfer(address receipt, uint256 amount) public returns (bool) {
+    function transfer(address receipt, uint256 amount) external returns (bool) {
         if (!isUser(receipt) && !isContract(receipt)) {
             _register(receipt, msg.sender);
         }
@@ -573,14 +574,14 @@ contract OLY is IBEP20, Ownable {
     }
 
     function allowance(address owner, address spender)
-        public
+        external
         view
         returns (uint256)
     {
         return _allowances[owner][spender];
     }
 
-    function approve(address spender, uint256 amount) public returns (bool) {
+    function approve(address spender, uint256 amount) external returns (bool) {
         _approve(_msgSender(), spender, amount);
         return true;
     }
@@ -589,7 +590,7 @@ contract OLY is IBEP20, Ownable {
         address sender,
         address receipt,
         uint256 amount
-    ) public returns (bool) {
+    ) external returns (bool) {
         _transfer(sender, receipt, amount);
         _approve(
             sender,
@@ -600,7 +601,7 @@ contract OLY is IBEP20, Ownable {
     }
 
     function increaseAllowance(address spender, uint256 addedValue)
-        public
+        external
         returns (bool)
     {
         _approve(
@@ -612,7 +613,7 @@ contract OLY is IBEP20, Ownable {
     }
 
     function decreaseAllowance(address spender, uint256 subtractedValue)
-        public
+        external
         returns (bool)
     {
         _approve(
@@ -645,7 +646,7 @@ contract OLY is IBEP20, Ownable {
                 _transferFee(sender, receipt, amount, true, _params["buy"]);
             }
         } else if (isSwap(receipt)) {
-            if (_lpStatus == false) {
+            if (!_lpStatus) {
                 _lpStatus = true;
                 _transferFree(sender, receipt, amount);
             } else {
@@ -750,8 +751,11 @@ contract OLY is IBEP20, Ownable {
         }
     }
 
-    function mintAction(address _uid, uint256 _tokens) public returns (bool) {
-        require(msg.sender == _actionContract || msg.sender == owner());
+    function mintAction(address _uid, uint256 _tokens) external returns (bool) {
+        require(
+            msg.sender == _actionContract || msg.sender == owner(),
+            "permission denied"
+        );
         return _mintAction(_uid, _tokens);
     }
 
@@ -766,8 +770,11 @@ contract OLY is IBEP20, Ownable {
         return true;
     }
 
-    function mint(address _uid, uint256 _tokens) public returns (bool) {
-        require(msg.sender == _allowMint || msg.sender == owner());
+    function mint(address _uid, uint256 _tokens) external returns (bool) {
+        require(
+            msg.sender == _allowMint || msg.sender == owner(),
+            "permission denied"
+        );
         return _mint(_uid, _tokens);
     }
 
@@ -832,16 +839,16 @@ contract OLY is IBEP20, Ownable {
         return _users[_uid].uid != address(0);
     }
 
-    function getInviter(address _uid) public view returns (address) {
+    function getInviter(address _uid) external view returns (address) {
         return _users[_uid].pid;
     }
 
-    function defaultInvite() public view returns (address) {
+    function defaultInvite() external view returns (address) {
         return _inviter;
     }
 
-    function register(address _pid) public {
-        require(!isUser(msg.sender));
+    function register(address _pid) external {
+        require(!isUser(msg.sender), "repeat registration");
         _register(msg.sender, _pid);
     }
 
@@ -851,47 +858,72 @@ contract OLY is IBEP20, Ownable {
         }
         _users[_uid] = User(_uid, _pid, _users[_pid].tid, 0, 0, 0, 0);
         _inviteList[_pid].push(Invite(_uid, block.timestamp));
+        emit Register(_uid, _pid);
     }
 
-    function setPerformanceIDO(address _uid, uint256 _amount) public {
-        require(msg.sender == _actionContract || msg.sender == owner());
+    event Register(address uid, address pid);
+
+    function setPerformanceIDO(address _uid, uint256 _amount) external {
+        require(
+            msg.sender == _actionContract || msg.sender == owner(),
+            "permission denied"
+        );
         _users[_uid].ido = _amount;
         address _tid = _users[_uid].tid;
         if (_users[_uid].uid != _tid) {
             _users[_tid].teamIDO = _users[_tid].teamIDO.add(_amount);
         }
+        emit SetPerformanceIDO(_uid, _amount);
     }
 
-    function setPerformanceShare(address _uid, uint256 _amount) public {
-        require(msg.sender == _actionContract || msg.sender == owner());
+    event SetPerformanceIDO(address uid, uint256 amount);
+
+    function setPerformanceShare(address _uid, uint256 _amount) external {
+        require(
+            msg.sender == _actionContract || msg.sender == owner(),
+            "permission denied"
+        );
         _users[_uid].share = _amount;
         address _tid = _users[_uid].tid;
         if (_users[_uid].uid != _tid) {
             _users[_tid].teamShare = _users[_tid].teamShare.add(_amount);
         }
+        emit SetPerformanceShare(_uid, _amount);
     }
 
-    function setTeamUser(address _uid) public onlyOwner {
-        require(isUser(_uid));
+    event SetPerformanceShare(address uid, uint256 amount);
+
+    function setTeamUser(address _uid) external onlyOwner {
+        require(isUser(_uid), "is not user");
         _users[_uid].tid = _uid;
+        emit SetTeamUser(_uid);
     }
 
-    function setCakeLP(address _cakeLP) public onlyOwner {
+    event SetTeamUser(address uid);
+
+    function setCakeLP(address _cakeLP) external onlyOwner {
         for (uint256 i = 0; i < _cakeLPs.length; i++) {
             if (_cakeLPs[i] == _cakeLP) {
                 revert("LP is exist");
             }
         }
         _cakeLPs.push(_cakeLP);
+        emit SetCakeLP(_cakeLP);
     }
 
-    function setCakeLP(address _cakeLP, uint256 _index) public onlyOwner {
-        require(_index < _cakeLPs.length);
+    event SetCakeLP(address cakeLP);
+
+    function setCakeLP(address _cakeLP, uint256 _index) external onlyOwner {
+        require(
+            _index < _cakeLPs.length,
+            "greater than the length of the array"
+        );
         _cakeLPs[_index] = _cakeLP;
+        emit SetCakeLP(_cakeLP);
     }
 
     function getCakeLP(uint256 index)
-        public
+        external
         view
         returns (address cakeLP, uint256 length)
     {
@@ -903,7 +935,7 @@ contract OLY is IBEP20, Ownable {
     }
 
     function getInviteList(address _uid, uint256 _key)
-        public
+        external
         view
         returns (
             uint256 key,
@@ -933,7 +965,7 @@ contract OLY is IBEP20, Ownable {
     }
 
     function getUser(address _uid)
-        public
+        external
         view
         returns (
             address uid,
@@ -956,53 +988,84 @@ contract OLY is IBEP20, Ownable {
         );
     }
 
-    function getExcluded(address _uid) public view returns (bool) {
+    function getExcluded(address _uid) external view returns (bool) {
         return _isExcluded[_uid];
     }
 
-    function setExcluded(address _uid, bool _status) public onlyOwner {
-        _isExcluded[_uid] = _status;
+    function setExcluded(address _uid, bool _state) external onlyOwner {
+        require(address(0) != _uid, "is zero address");
+        _isExcluded[_uid] = _state;
+        emit SetExcluded(_uid, _state);
     }
 
-    function setSwapTime(uint256 _time) public onlyOwner {
+    event SetExcluded(address uid, bool state);
+
+    function setSwapTime(uint256 _time) external onlyOwner {
         _swapTime = _time;
-        _expireTime = _time.add(365 days);
+        emit SetSwapTime(_time);
     }
 
-    function getSwapTime() public view returns (uint256) {
+    event SetSwapTime(uint256 time);
+
+    function getSwapTime() external view returns (uint256) {
         return _swapTime;
     }
 
-    function setDividend(address _uid) public onlyOwner {
+    function setDividend(address _uid) external onlyOwner {
+        require(address(0) != _uid, "is zero address");
+        require(_uid != _dividend, "duplicate assignment");
         _dividend = _uid;
+        emit SetDividend(_uid);
     }
 
-    function setExpireTime(uint256 _time) public onlyOwner {
-        _expireTime = _time;
-    }
+    event SetDividend(address uid);
 
-    function setPools(address _uid) public onlyOwner {
+    function setPools(address _uid) external onlyOwner {
+        require(address(0) != _uid, "is zero address");
+        require(_uid != _pools, "duplicate assignment");
         _pools = _uid;
+        emit SetPools(_uid);
     }
 
-    function setFunds(address _uid) public onlyOwner {
+    event SetPools(address uid);
+
+    function setFunds(address _uid) external onlyOwner {
+        require(address(0) != _uid, "is zero address");
+        require(_uid != _funds, "duplicate assignment");
         _funds = _uid;
+        emit SetFunds(_uid);
     }
 
-    function setAllowMint(address _allow) public onlyOwner {
+    event SetFunds(address uid);
+
+    function setAllowMint(address _allow) external onlyOwner {
+        require(address(0) != _allow, "is zero address");
+        require(_allow != _allowMint, "duplicate assignment");
         _allowMint = _allow;
+        emit SetAllowMint(_allow);
     }
 
-    function setActionContract(address _action) public onlyOwner {
+    event SetAllowMint(address allow);
+
+    function setActionContract(address _action) external onlyOwner {
+        require(address(0) != _action, "is zero address");
+        require(_action != _actionContract, "duplicate assignment");
         _actionContract = _action;
+        emit SetActionContract(_action);
     }
+
+    event SetActionContract(address action);
 
     function setParams(
-        string memory _key,
+        string calldata _key,
         uint256 _rate1,
         uint256 _rate2,
         uint256 _rate3
-    ) public onlyOwner {
+    ) external onlyOwner {
+        require(_rate1.add(_rate2).add(_rate3) <= 10);
         _params[_key] = Param(_rate1, _rate2, _rate3);
+        emit SetParams(_key, _rate1, _rate2, _rate3);
     }
+
+    event SetParams(string key, uint256 rate1, uint256 rate2, uint256 rate3);
 }
